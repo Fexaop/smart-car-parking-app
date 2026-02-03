@@ -4,68 +4,40 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
-	gobetterauth "github.com/GoBetterAuth/go-better-auth/v2"
-	gobetterauthconfig "github.com/GoBetterAuth/go-better-auth/v2/config"
-	gobetterauthenv "github.com/GoBetterAuth/go-better-auth/v2/env"
-	gobetterauthmodels "github.com/GoBetterAuth/go-better-auth/v2/models"
-	oauth2plugin "github.com/GoBetterAuth/go-better-auth/v2/plugins/oauth2"
-	oauth2plugintypes "github.com/GoBetterAuth/go-better-auth/v2/plugins/oauth2/types"
+	"github.com/Fexaop/mdp-ir-car-parking/config"
+	"github.com/Fexaop/mdp-ir-car-parking/middleware"
+	"github.com/Fexaop/mdp-ir-car-parking/query"
+	"github.com/Fexaop/mdp-ir-car-parking/routes"
+	"github.com/gorilla/mux"
 )
 
 func main() {
-	config := gobetterauthconfig.NewConfig(
-		gobetterauthconfig.WithAppName("MDPIRCarParking"),
-		gobetterauthconfig.WithBasePath("/api/auth"),
-		gobetterauthconfig.WithBaseURL(getEnvOrDefault("BASE_URL", "http://localhost:8080")),
-		gobetterauthconfig.WithDatabase(gobetterauthmodels.DatabaseConfig{
-			Provider: "sqlite",
-			URL:      getEnvOrDefault("DATABASE_URL", "./sqlite.db"),
-		}),
-		gobetterauthconfig.WithSecurity(gobetterauthmodels.SecurityConfig{
-			// Configure CORS and Trusted Origins appropriately
-			TrustedOrigins: []string{
-				getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
-			},
-			CORS: gobetterauthmodels.CORSConfig{
-				AllowCredentials: true,
-				AllowedOrigins: []string{
-					getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
-				},
-			},
-		}),
-	)
+	// Load configuration from .env file
+	cfg := config.LoadConfig()
 
-	auth := gobetterauth.New(&gobetterauth.AuthConfig{
-		Config: config,
-		Plugins: []gobetterauthmodels.Plugin{
-			oauth2plugin.New(oauth2plugintypes.OAuth2PluginConfig{
-				Enabled: true,
-				Providers: map[string]oauth2plugintypes.ProviderConfig{
-					"google": {
-						Enabled:      true,
-						ClientID:     os.Getenv(gobetterauthenv.EnvGoogleClientID),
-						ClientSecret: os.Getenv(gobetterauthenv.EnvGoogleClientSecret),
-						RedirectURL:  fmt.Sprintf("%s%s/oauth2/callback/google", config.BaseURL, config.BasePath),
-					},
-				},
-			}),
-		},
-	})
-
-	// Mount auth endpoints
-	http.Handle("/api/auth/", auth.Handler())
-
-	log.Println("Server starting on :8080")
-	log.Printf("Google OAuth authorize URL: %s/api/auth/oauth2/authorize/google?redirect_to=<YOUR_REDIRECT_URL>", config.BaseURL)
-	log.Printf("Google OAuth callback URL: %s/api/auth/oauth2/callback/google", config.BaseURL)
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+	// Initialize database
+	db, err := query.InitDB(cfg.DBPath)
+	if err != nil {
+		log.Fatal("Failed to initialize database:", err)
 	}
-	return defaultValue
+	defer db.Close()
+
+	// Initialize dependencies
+	userQueries := query.NewUserQueries(db)
+	authMiddleware := middleware.NewAuthMiddleware(cfg.JWTSecret)
+	authRoutes := routes.NewAuthRoutes(cfg.GoogleOAuthConfig, userQueries, authMiddleware)
+
+	// Setup routes
+	r := mux.NewRouter()
+
+	// Auth routes
+	r.HandleFunc("/login", authRoutes.LoginHandler)
+	r.HandleFunc("/callback", authRoutes.CallbackHandler)
+	r.Handle("/protected", authMiddleware.AuthRequired(http.HandlerFunc(authRoutes.ProtectedHandler)))
+
+	// Start server
+	serverAddr := ":" + cfg.ServerPort
+	fmt.Printf("Server running on http://localhost%s\n", serverAddr)
+	log.Fatal(http.ListenAndServe(serverAddr, r))
 }
