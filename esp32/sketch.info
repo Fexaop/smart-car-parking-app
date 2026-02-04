@@ -1,0 +1,125 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// ---------------- PINS ----------------
+#define IR_PIN 4
+#define GREEN_LED 2
+#define RED_LED 15
+#define SERVO_PIN 13
+
+// ---------------- SERVO ----------------
+#define SERVO_CHANNEL 0
+
+// ---------------- LCD ----------------
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ---------------- WIFI ----------------
+const char* ssid = "Wokwi-GUEST";
+const char* password = "";
+
+// ---------------- BACKEND ----------------
+String backend = "http://host.docker.internal:8080";
+
+// ---------------- WIFI CONNECT ----------------
+void connectWiFi() {
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+}
+
+// ---------------- SERVO FUNCTION ----------------
+void setServoAngle(int angle) {
+  // map 0–180° to PWM duty
+  int duty = map(angle, 0, 180, 500, 2500);
+  ledcWrite(SERVO_CHANNEL, duty);
+}
+
+// ---------------- SEND CAR STATUS ----------------
+void sendStatus(bool car) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(backend + "/status");
+    http.addHeader("Content-Type", "application/json");
+
+    String body = car ? "{\"car\":1}" : "{\"car\":0}";
+    http.POST(body);
+    http.end();
+  }
+}
+
+// ---------------- GET SERVO COMMAND ----------------
+bool getLiftCommand() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(backend + "/gate");
+    int code = http.GET();
+
+    if (code == 200) {
+      String payload = http.getString();
+      http.end();
+      return payload.indexOf("true") != -1;
+    }
+    http.end();
+  }
+  return false;
+}
+
+// ---------------- SETUP ----------------
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(IR_PIN, INPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+
+  // NEW LEDC ATTACH (Wokwi compatible)
+  ledcAttach(SERVO_PIN, 50, 16); // pin, freq, resolution
+
+  lcd.init();
+  lcd.backlight();
+
+  connectWiFi();
+
+  lcd.print("System Ready");
+  delay(1500);
+  lcd.clear();
+}
+
+// ---------------- LOOP ----------------
+void loop() {
+  bool carPresent = digitalRead(IR_PIN) == LOW;
+
+  sendStatus(carPresent);
+
+  lcd.clear();
+
+  if (carPresent) {
+    digitalWrite(RED_LED, HIGH);
+    digitalWrite(GREEN_LED, LOW);
+    lcd.print("Car Parked");
+  } else {
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, LOW);
+    lcd.print("No Car");
+  }
+
+  bool lift = getLiftCommand();
+
+  if (lift) {
+    setServoAngle(75);
+    lcd.setCursor(0, 1);
+    lcd.print("Gate OPEN");
+  } else {
+    setServoAngle(0);
+    lcd.setCursor(0, 1);
+    lcd.print("Gate CLOSED");
+  }
+
+  delay(2000);
+}
