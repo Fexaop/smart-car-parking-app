@@ -9,6 +9,7 @@ import (
 	"github.com/Fexaop/mdp-ir-car-parking/middleware"
 	"github.com/Fexaop/mdp-ir-car-parking/query"
 	"github.com/Fexaop/mdp-ir-car-parking/routes"
+	"github.com/Fexaop/mdp-ir-car-parking/parking"
 	"github.com/gorilla/mux"
 )
 
@@ -46,6 +47,9 @@ func main() {
 
 	// Setup routes
 	r := mux.NewRouter()
+
+    // Parking API routes
+    parking.RegisterRoutes(r)
 
 	// Auth routes
 	r.HandleFunc("/login", authRoutes.LoginHandler).Methods("GET")

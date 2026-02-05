@@ -3,7 +3,8 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Login from "@/pages/Login";
-import Home from "@/pages/Home";
+import Profile from "@/pages/Profile";
+import Dashboard from "@/pages/Dashboard";
 import "./App.css";
 
 function AppRoutes() {
@@ -19,16 +20,24 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/home" replace /> : <Login />} />
+      <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
       <Route
-        path="/home"
+        path="/profile"
         element={
           <ProtectedRoute>
-            <Home />
+            <Profile />
           </ProtectedRoute>
         }
       />
-      <Route path="/" element={<Navigate to={user ? "/home" : "/login"} replace />} />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
     </Routes>
   );
 }
