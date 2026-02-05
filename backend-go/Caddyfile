@@ -1,0 +1,3 @@
+pwnhub.in {
+    reverse_proxy backend:8080
+}

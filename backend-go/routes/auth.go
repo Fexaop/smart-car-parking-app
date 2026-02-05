@@ -3,8 +3,10 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
+	"github.com/Fexaop/mdp-ir-car-parking/query"
 	"golang.org/x/oauth2"
 )
 
@@ -16,10 +18,24 @@ type AuthRoutes struct {
 
 type UserQueriesInterface interface {
 	CreateOrIgnoreUser(googleID, email string) error
+	CreateOrUpdateUser(googleID, email, name, picture string) error
+	GetUserByEmail(email string) (query.UserInfo, error)
+	GetUserByGoogleID(googleID string) (query.UserInfo, error)
 }
 
 type AuthMiddlewareInterface interface {
 	GenerateJWT(uid string) (string, error)
+	GetUserIDFromRequest(r *http.Request) (string, error)
+}
+
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginResponse struct {
+	Token string         `json:"token"`
+	User  query.UserInfo `json:"user"`
 }
 
 func NewAuthRoutes(googleConfig *oauth2.Config, userQueries UserQueriesInterface, authMiddleware AuthMiddlewareInterface) *AuthRoutes {
@@ -30,7 +46,9 @@ func NewAuthRoutes(googleConfig *oauth2.Config, userQueries UserQueriesInterface
 	}
 }
 
+// Google OAuth login handler
 func (ar *AuthRoutes) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	// Redirect to Google OAuth
 	url := ar.GoogleConfig.AuthCodeURL("state-token")
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
@@ -53,12 +71,14 @@ func (ar *AuthRoutes) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	var user struct {
-		ID    string `json:"id"`
-		Email string `json:"email"`
+		ID      string `json:"id"`
+		Email   string `json:"email"`
+		Name    string `json:"name"`
+		Picture string `json:"picture"`
 	}
 	json.NewDecoder(resp.Body).Decode(&user)
 
-	err = ar.UserQueries.CreateOrIgnoreUser(user.ID, user.Email)
+	err = ar.UserQueries.CreateOrUpdateUser(user.ID, user.Email, user.Name, user.Picture)
 	if err != nil {
 		http.Error(w, "Database error", 500)
 		return
@@ -70,13 +90,37 @@ func (ar *AuthRoutes) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return token as JSON
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"token": jwtToken,
-	})
+	// Redirect back to the app with token as URL parameter
+	// For dev: localhost:1420, for production: the app handles it internally
+	frontendURL := "http://localhost:1420"
+	redirectURL := fmt.Sprintf("%s/?token=%s", frontendURL, jwtToken)
+	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
 func (ar *AuthRoutes) ProtectedHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Authorized access success"))
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	userID, err := ar.AuthMiddleware.GetUserIDFromRequest(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Fetch user from database
+	user, err := ar.UserQueries.GetUserByGoogleID(userID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
 }

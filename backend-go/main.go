@@ -12,6 +12,22 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// CORS Middleware
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	// Load configuration from .env file
 	cfg := config.LoadConfig()
@@ -32,12 +48,15 @@ func main() {
 	r := mux.NewRouter()
 
 	// Auth routes
-	r.HandleFunc("/login", authRoutes.LoginHandler)
-	r.HandleFunc("/callback", authRoutes.CallbackHandler)
-	r.Handle("/protected", authMiddleware.AuthRequired(http.HandlerFunc(authRoutes.ProtectedHandler)))
+	r.HandleFunc("/login", authRoutes.LoginHandler).Methods("GET")
+	r.HandleFunc("/callback", authRoutes.CallbackHandler).Methods("GET")
+	r.Handle("/protected", authMiddleware.AuthRequired(http.HandlerFunc(authRoutes.ProtectedHandler))).Methods("GET", "OPTIONS")
+
+	// Apply CORS middleware
+	handler := corsMiddleware(r)
 
 	// Start server
 	serverAddr := ":" + cfg.ServerPort
 	fmt.Printf("Server running on http://localhost%s\n", serverAddr)
-	log.Fatal(http.ListenAndServe(serverAddr, r))
+	log.Fatal(http.ListenAndServe(serverAddr, handler))
 }
