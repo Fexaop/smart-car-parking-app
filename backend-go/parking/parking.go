@@ -19,6 +19,7 @@ type Spot struct {
     ID       string `json:"id"`
     Number   int    `json:"number"`
     Occupied bool   `json:"occupied"`
+    LastOpen string `json:"lastOpen,omitempty"`
     QRCode   string `json:"qrCode,omitempty"`
 }
 
@@ -65,6 +66,8 @@ func RegisterRoutes(r *mux.Router) {
     r.HandleFunc("/api/parks/{parkID}/reserve", reserveSpotHandler).Methods("POST")
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/reserve", reserveSpecificSpotHandler).Methods("POST")
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/release", releaseSpotHandler).Methods("POST")
+    r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/update", updateSpotHandler).Methods("POST")
+    r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/opengate", openGateHandler).Methods("POST")
 }
 
 func listParksHandler(w http.ResponseWriter, r *http.Request) {
@@ -242,6 +245,71 @@ func releaseSpotHandler(w http.ResponseWriter, r *http.Request) {
         if p.Spots[i].ID == spotID {
             p.Spots[i].Occupied = false
             p.Spots[i].QRCode = ""
+            w.Header().Set("Content-Type", "application/json")
+            json.NewEncoder(w).Encode(map[string]any{"ok": true})
+            return
+        }
+    }
+
+    http.Error(w, "spot not found", http.StatusNotFound)
+}
+
+// updateSpotHandler accepts POST { "occupied": true/false } to update spot occupancy
+func updateSpotHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    parkID := vars["parkID"]
+    spotID := vars["spotID"]
+
+    type payload struct {
+        Occupied bool `json:"occupied"`
+    }
+
+    var pld payload
+    if err := json.NewDecoder(r.Body).Decode(&pld); err != nil {
+        http.Error(w, "invalid body", http.StatusBadRequest)
+        return
+    }
+
+    store.mu.Lock()
+    defer store.mu.Unlock()
+    p, ok := store.parks[parkID]
+    if !ok {
+        http.Error(w, "park not found", http.StatusNotFound)
+        return
+    }
+
+    for i := range p.Spots {
+        if p.Spots[i].ID == spotID {
+            p.Spots[i].Occupied = pld.Occupied
+            if !pld.Occupied {
+                p.Spots[i].QRCode = ""
+            }
+            w.Header().Set("Content-Type", "application/json")
+            json.NewEncoder(w).Encode(map[string]any{"ok": true})
+            return
+        }
+    }
+
+    http.Error(w, "spot not found", http.StatusNotFound)
+}
+
+// openGateHandler records a gate-open event for a spot (simple notification)
+func openGateHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    parkID := vars["parkID"]
+    spotID := vars["spotID"]
+
+    store.mu.Lock()
+    defer store.mu.Unlock()
+    p, ok := store.parks[parkID]
+    if !ok {
+        http.Error(w, "park not found", http.StatusNotFound)
+        return
+    }
+
+    for i := range p.Spots {
+        if p.Spots[i].ID == spotID {
+            p.Spots[i].LastOpen = time.Now().UTC().Format(time.RFC3339)
             w.Header().Set("Content-Type", "application/json")
             json.NewEncoder(w).Encode(map[string]any{"ok": true})
             return
