@@ -41,23 +41,21 @@ func init() {
         parks: make(map[string]*Park),
     }
 
-    // initialize 4 parking sites with 5 spots each
-    for i := 1; i <= 4; i++ {
-        pid := fmt.Sprintf("park-%d", i)
-        p := &Park{
-            ID: pid,
-            Name: fmt.Sprintf("Parking Site %d", i),
-            Spots: make([]Spot, 5),
-        }
-        for s := 0; s < 5; s++ {
-            p.Spots[s] = Spot{
-                ID: fmt.Sprintf("%s-spot-%d", pid, s+1),
-                Number: s + 1,
-                Occupied: false,
-            }
-        }
-        store.parks[pid] = p
+    // initialize 1 parking site with 3 spots (matching ESP32 hardware)
+    pid := "park-1"
+    p := &Park{
+        ID: pid,
+        Name: "Parking Site 1",
+        Spots: make([]Spot, 3),
     }
+    for s := 0; s < 3; s++ {
+        p.Spots[s] = Spot{
+            ID: fmt.Sprintf("%s-spot-%d", pid, s+1),
+            Number: s + 1,
+            Occupied: false,
+        }
+    }
+    store.parks[pid] = p
 }
 
 // RegisterRoutes registers HTTP handlers under /api/parks

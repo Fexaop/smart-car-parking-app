@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "car-parking",
+  "productName": "carparking",
   "version": "0.1.0",
-  "identifier": "com.mdp.car-parking",
+  "identifier": "com.mdp.carparking",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "car-parking",
+        "title": "carparking",
         "width": 800,
         "height": 600
       }

@@ -1,4 +1,4 @@
-package com.mdp.car_parking
+package com.mdp.carparking
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

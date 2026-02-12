@@ -33,6 +33,11 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+type MobileAuthRequest struct {
+	IDToken     string `json:"id_token"`
+	AccessToken string `json:"access_token"`
+}
+
 type LoginResponse struct {
 	Token string         `json:"token"`
 	User  query.UserInfo `json:"user"`
@@ -95,6 +100,77 @@ func (ar *AuthRoutes) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	frontendURL := "http://localhost:1420"
 	redirectURL := fmt.Sprintf("%s/?token=%s", frontendURL, jwtToken)
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+}
+
+// MobileAuthHandler handles authentication from mobile Google Auth
+func (ar *AuthRoutes) MobileAuthHandler(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req MobileAuthRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Fetch user info from Google using the access token
+	client := &http.Client{}
+	userInfoReq, err := http.NewRequest("GET", "https://www.googleapis.com/oauth2/v2/userinfo", nil)
+	if err != nil {
+		http.Error(w, "Failed to create request", http.StatusInternalServerError)
+		return
+	}
+	userInfoReq.Header.Set("Authorization", "Bearer "+req.AccessToken)
+
+	resp, err := client.Do(userInfoReq)
+	if err != nil {
+		http.Error(w, "Failed to fetch user info", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "Invalid access token", http.StatusUnauthorized)
+		return
+	}
+
+	var user struct {
+		ID      string `json:"id"`
+		Email   string `json:"email"`
+		Name    string `json:"name"`
+		Picture string `json:"picture"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		http.Error(w, "Failed to parse user info", http.StatusInternalServerError)
+		return
+	}
+
+	// Create or update user in database
+	err = ar.UserQueries.CreateOrUpdateUser(user.ID, user.Email, user.Name, user.Picture)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	// Generate JWT token
+	jwtToken, err := ar.AuthMiddleware.GenerateJWT(user.ID)
+	if err != nil {
+		http.Error(w, "Token generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Return the JWT token
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"token": jwtToken,
+	})
 }
 
 func (ar *AuthRoutes) ProtectedHandler(w http.ResponseWriter, r *http.Request) {

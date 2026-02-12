@@ -54,6 +54,7 @@ func main() {
 	// Auth routes
 	r.HandleFunc("/login", authRoutes.LoginHandler).Methods("GET")
 	r.HandleFunc("/callback", authRoutes.CallbackHandler).Methods("GET")
+	r.HandleFunc("/auth/mobile", authRoutes.MobileAuthHandler).Methods("POST", "OPTIONS")
 	r.Handle("/protected", authMiddleware.AuthRequired(http.HandlerFunc(authRoutes.ProtectedHandler))).Methods("GET", "OPTIONS")
 
 	// Apply CORS middleware
