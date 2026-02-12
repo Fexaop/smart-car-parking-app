@@ -1,18 +1,18 @@
 package parking
 
 import (
-    "bytes"
-    "encoding/base64"
-    "encoding/json"
-    "fmt"
-    "image/png"
-    "net/http"
-    "sync"
-    "time"
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"image/png"
+	"net/http"
+	"sync"
+	"time"
 
-    "github.com/boombuler/barcode"
-    "github.com/boombuler/barcode/qr"
-    "github.com/gorilla/mux"
+	"github.com/boombuler/barcode"
+	"github.com/boombuler/barcode/qr"
+	"github.com/gorilla/mux"
 )
 
 type Spot struct {
