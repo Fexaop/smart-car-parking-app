@@ -102,6 +102,22 @@ def listen_to_esp32(sock):
                     # Format: STATUS:E:O:E
                     send_to_go("status", {"message": line})
                 
+                elif line.startswith("OTP_VALID:"):
+                    # Format: OTP_VALID:1
+                    parts = line.split(':')
+                    if len(parts) == 2:
+                        spot = int(parts[1])
+                        send_to_go("otp_valid", {"spot": spot})
+                        log_info(f"OTP validated successfully for spot {spot}")
+                
+                elif line == "OTP_INVALID":
+                    send_to_go("otp_invalid", {})
+                    log_info("OTP validation failed")
+                
+                elif line == "OTP_CLEARED":
+                    send_to_go("otp_cleared", {})
+                    log_info("OTP display cleared")
+                
                 else:
                     # Other messages
                     send_to_go("message", {"text": line})

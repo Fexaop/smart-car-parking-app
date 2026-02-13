@@ -83,6 +83,8 @@ func RegisterRoutes(r *mux.Router) {
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/update", updateSpotHandler).Methods("POST")
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/opengate", openGateHandler).Methods("POST")
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/validate-otp", validateOTPHandler).Methods("POST")
+    r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/clear-otp-display", clearOTPDisplayHandler).Methods("POST")
+    r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/validate-otp-esp32", validateOTPViaESP32Handler).Methods("POST")
 }
 
 func listParksHandler(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +277,7 @@ func updateSpotHandler(w http.ResponseWriter, r *http.Request) {
     http.Error(w, "spot not found", http.StatusNotFound)
 }
 
-// openGateHandler records a gate-open event for a spot (simple notification)
+// openGateHandler toggles the gate for a spot via ESP32
 func openGateHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     parkID := vars["parkID"]
@@ -292,8 +294,18 @@ func openGateHandler(w http.ResponseWriter, r *http.Request) {
     for i := range p.Spots {
         if p.Spots[i].ID == spotID {
             p.Spots[i].LastOpen = time.Now().UTC().Format(time.RFC3339)
+            
+            // Send toggle command to ESP32
+            if store.btBridge != nil {
+                cmd := fmt.Sprintf("toggle %d", p.Spots[i].Number)
+                if err := store.btBridge.DisplayOTP(cmd); err != nil {
+                    http.Error(w, fmt.Sprintf("failed to toggle gate: %v", err), http.StatusInternalServerError)
+                    return
+                }
+            }
+            
             w.Header().Set("Content-Type", "application/json")
-            json.NewEncoder(w).Encode(map[string]any{"ok": true})
+            json.NewEncoder(w).Encode(map[string]any{"ok": true, "message": "Gate toggled"})
             return
         }
     }
@@ -369,4 +381,111 @@ func validateOTPHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     http.Error(w, "spot not found", http.StatusNotFound)
+}
+
+// clearOTPDisplayHandler clears the OTP from the ESP32 LCD screen
+func clearOTPDisplayHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    parkID := vars["parkID"]
+    spotID := vars["spotID"]
+
+    store.mu.Lock()
+    defer store.mu.Unlock()
+    p, ok := store.parks[parkID]
+    if !ok {
+        http.Error(w, "park not found", http.StatusNotFound)
+        return
+    }
+
+    // Verify spot exists
+    found := false
+    for i := range p.Spots {
+        if p.Spots[i].ID == spotID {
+            found = true
+            break
+        }
+    }
+
+    if !found {
+        http.Error(w, "spot not found", http.StatusNotFound)
+        return
+    }
+
+    // Send command to ESP32 to clear OTP display
+    if store.btBridge != nil {
+        err := store.btBridge.DisplayOTP("CLEAR")
+        if err != nil {
+            http.Error(w, "failed to send command to ESP32", http.StatusInternalServerError)
+            return
+        }
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]any{
+        "ok": true,
+        "message": "OTP display cleared",
+    })
+}
+
+// validateOTPViaESP32Handler sends OTP to ESP32 for local validation
+func validateOTPViaESP32Handler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    parkID := vars["parkID"]
+    spotID := vars["spotID"]
+
+    type payload struct {
+        OTP string `json:"otp"`
+    }
+
+    var pld payload
+    if err := json.NewDecoder(r.Body).Decode(&pld); err != nil {
+        http.Error(w, "invalid body", http.StatusBadRequest)
+        return
+    }
+
+    store.mu.Lock()
+    defer store.mu.Unlock()
+    p, ok := store.parks[parkID]
+    if !ok {
+        http.Error(w, "park not found", http.StatusNotFound)
+        return
+    }
+
+    var spotNumber int
+    found := false
+    for i := range p.Spots {
+        if p.Spots[i].ID == spotID {
+            spotNumber = p.Spots[i].Number
+            found = true
+            break
+        }
+    }
+
+    if !found {
+        http.Error(w, "spot not found", http.StatusNotFound)
+        return
+    }
+
+    // Send VALIDATE command to ESP32
+    // Format: VALIDATE:spot:otp
+    validateCmd := fmt.Sprintf("VALIDATE:%d:%s", spotNumber, pld.OTP)
+    
+    if store.btBridge != nil {
+        err := store.btBridge.DisplayOTP(validateCmd)
+        if err != nil {
+            http.Error(w, "failed to send command to ESP32", http.StatusInternalServerError)
+            return
+        }
+    } else {
+        http.Error(w, "Bluetooth bridge not available", http.StatusServiceUnavailable)
+        return
+    }
+
+    // Note: ESP32 will validate and respond with OTP_VALID or OTP_INVALID
+    // The response will be handled by the message handler
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]any{
+        "ok": true,
+        "message": "OTP validation sent to ESP32",
+    })
 }

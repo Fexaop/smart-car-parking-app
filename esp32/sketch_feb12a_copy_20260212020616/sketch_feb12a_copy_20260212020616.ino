@@ -161,7 +161,60 @@ void sendOccupancyUpdate(int spot, bool occupied) {
 void handleBluetoothCommand(String cmd) {
   cmd.trim();
   
-  // Check for OTP command format: "1:1234" (spot:otp)
+  // Check for clear OTP command
+  if (cmd.equalsIgnoreCase("CLEAR") || cmd.equalsIgnoreCase("CLEAR_OTP")) {
+    currentOTP = "";
+    otpSpot = 0;
+    Serial.println("OTP cleared");
+    if (SerialBT.hasClient()) {
+      SerialBT.println("OTP_CLEARED");
+    }
+    return;
+  }
+  
+  // Check for VALIDATE command format: "VALIDATE:spot:otp"
+  if (cmd.startsWith("VALIDATE:") || cmd.startsWith("validate:")) {
+    int firstColon = cmd.indexOf(':');
+    int secondColon = cmd.indexOf(':', firstColon + 1);
+    
+    if (firstColon > 0 && secondColon > firstColon) {
+      String spotStr = cmd.substring(firstColon + 1, secondColon);
+      String otpInput = cmd.substring(secondColon + 1);
+      
+      int spot = spotStr.toInt();
+      
+      // Check if OTP matches and is for the correct spot
+      if (currentOTP != "" && otpSpot == spot && currentOTP == otpInput) {
+        // OTP is valid - open the gate
+        Serial.print("OTP validated for spot ");
+        Serial.println(spot);
+        
+        if (SerialBT.hasClient()) {
+          SerialBT.print("OTP_VALID:");
+          SerialBT.println(spot);
+        }
+        
+        // Open the gate if not already open
+        if (spot == 1 && !gate1Open) toggleGate(1);
+        else if (spot == 2 && !gate2Open) toggleGate(2);
+        else if (spot == 3 && !gate3Open) toggleGate(3);
+        
+        // Clear OTP after successful validation
+        currentOTP = "";
+        otpSpot = 0;
+        return;
+      } else {
+        // Invalid OTP
+        Serial.println("Invalid OTP");
+        if (SerialBT.hasClient()) {
+          SerialBT.println("OTP_INVALID");
+        }
+        return;
+      }
+    }
+  }
+  
+  // Check for colon-separated commands
   if (cmd.indexOf(':') > 0) {
     int colonPos = cmd.indexOf(':');
     String part1 = cmd.substring(0, colonPos);

@@ -156,6 +156,16 @@ func (b *BluetoothBridge) handlePythonMessage(msg PythonMessage) {
 	case "message":
 		log.Printf("ESP32 message: %v\n", msg.Data["text"])
 	
+	case "otp_valid":
+		spot := int(msg.Data["spot"].(float64))
+		log.Printf("OTP validated successfully for spot %d\n", spot)
+	
+	case "otp_invalid":
+		log.Println("OTP validation failed - invalid code")
+	
+	case "otp_cleared":
+		log.Println("OTP display cleared from LCD")
+	
 	default:
 		log.Printf("Unknown message type: %s\n", msg.Type)
 	}
