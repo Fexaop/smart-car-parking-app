@@ -38,6 +38,12 @@ bool gate1Open = false;
 bool gate2Open = false;
 bool gate3Open = false;
 
+// OTP display variables
+String currentOTP = "";
+int otpSpot = 0;
+unsigned long otpDisplayTime = 0;
+const unsigned long OTP_DISPLAY_DURATION = 30000; // Show OTP for 30 seconds
+
 // ---------------- Timing ----------------
 unsigned long lastLCD = 0;
 
@@ -154,15 +160,53 @@ void sendOccupancyUpdate(int spot, bool occupied) {
 // Handle Bluetooth commands
 void handleBluetoothCommand(String cmd) {
   cmd.trim();
-  cmd.toLowerCase();
   
-  if (cmd == "open 1" || cmd == "1" || cmd == "toggle 1") {
+  // Check for OTP command format: "1:1234" (spot:otp)
+  if (cmd.indexOf(':') > 0) {
+    int colonPos = cmd.indexOf(':');
+    String part1 = cmd.substring(0, colonPos);
+    String part2 = cmd.substring(colonPos + 1);
+    
+    // Handle "OPEN:spot" command
+    if (part1.equalsIgnoreCase("OPEN")) {
+      int spot = part2.toInt();
+      if (spot >= 1 && spot <= 3) {
+        // Open the gate for this spot
+        if (!gate1Open && spot == 1) toggleGate(1);
+        else if (!gate2Open && spot == 2) toggleGate(2);
+        else if (!gate3Open && spot == 3) toggleGate(3);
+        // Clear OTP after opening
+        currentOTP = "";
+        otpSpot = 0;
+      }
+      return;
+    }
+    
+    // Handle "spot:otp" format for displaying OTP
+    int spot = part1.toInt();
+    if (spot >= 1 && spot <= 3 && part2.length() == 4) {
+      currentOTP = part2;
+      otpSpot = spot;
+      otpDisplayTime = millis();
+      Serial.print("OTP for spot ");
+      Serial.print(spot);
+      Serial.print(": ");
+      Serial.println(currentOTP);
+      return;
+    }
+  }
+  
+  // Legacy commands
+  String cmdLower = cmd;
+  cmdLower.toLowerCase();
+  
+  if (cmdLower == "open 1" || cmdLower == "1" || cmdLower == "toggle 1") {
     toggleGate(1);
-  } else if (cmd == "open 2" || cmd == "2" || cmd == "toggle 2") {
+  } else if (cmdLower == "open 2" || cmdLower == "2" || cmdLower == "toggle 2") {
     toggleGate(2);
-  } else if (cmd == "open 3" || cmd == "3" || cmd == "toggle 3") {
+  } else if (cmdLower == "open 3" || cmdLower == "3" || cmdLower == "toggle 3") {
     toggleGate(3);
-  } else if (cmd == "s" || cmd == "status") {
+  } else if (cmdLower == "s" || cmdLower == "status") {
     long d1 = readUS(TRIG1, ECHO1);
     long d2 = readUS(TRIG2, ECHO2);
     long d3 = readUS(TRIG3, ECHO3);
@@ -227,37 +271,63 @@ void loop() {
   }
   lastBtn1 = b1; lastBtn2 = b2; lastBtn3 = b3;
 
-  // -------- LCD Update showing gate status --------
+  // -------- LCD Update showing gate status or OTP --------
   if (millis() - lastLCD > 200) {
     lastLCD = millis();
 
-    lcd.setCursor(0,0);
-    // Line 1: Gate status (O=Open, C=Closed, *=Occupied)
-    lcd.print("G1:");
-    if (gate1Open) lcd.print("O"); 
-    else if (occ1) lcd.print("*");
-    else lcd.print("C");
-    
-    lcd.print(" G2:");
-    if (gate2Open) lcd.print("O");
-    else if (occ2) lcd.print("*");
-    else lcd.print("C");
-    
-    lcd.print(" G3:");
-    if (gate3Open) lcd.print("O");
-    else if (occ3) lcd.print("*");
-    else lcd.print("C");
-    
-    lcd.print(" ");
+    // Check if OTP should be displayed
+    bool displayOTP = false;
+    if (currentOTP != "" && otpSpot > 0) {
+      if (millis() - otpDisplayTime < OTP_DISPLAY_DURATION) {
+        displayOTP = true;
+      } else {
+        // OTP expired, clear it
+        currentOTP = "";
+        otpSpot = 0;
+      }
+    }
 
-    lcd.setCursor(0,1);
-    // Line 2: Distance readings
-    lcd.print(d1);
-    lcd.print("cm ");
-    lcd.print(d2);
-    lcd.print("cm ");
-    lcd.print(d3);
-    lcd.print("cm  ");
+    if (displayOTP) {
+      // Display OTP on LCD
+      lcd.setCursor(0,0);
+      lcd.print("Spot ");
+      lcd.print(otpSpot);
+      lcd.print(" OTP:    ");
+      
+      lcd.setCursor(0,1);
+      lcd.print("Code: ");
+      lcd.print(currentOTP);
+      lcd.print("      ");
+    } else {
+      // Normal status display
+      lcd.setCursor(0,0);
+      // Line 1: Gate status (O=Open, C=Closed, *=Occupied)
+      lcd.print("G1:");
+      if (gate1Open) lcd.print("O"); 
+      else if (occ1) lcd.print("*");
+      else lcd.print("C");
+      
+      lcd.print(" G2:");
+      if (gate2Open) lcd.print("O");
+      else if (occ2) lcd.print("*");
+      else lcd.print("C");
+      
+      lcd.print(" G3:");
+      if (gate3Open) lcd.print("O");
+      else if (occ3) lcd.print("*");
+      else lcd.print("C");
+      
+      lcd.print(" ");
+
+      lcd.setCursor(0,1);
+      // Line 2: Distance readings
+      lcd.print(d1);
+      lcd.print("cm ");
+      lcd.print(d2);
+      lcd.print("cm ");
+      lcd.print(d3);
+      lcd.print("cm  ");
+    }
   }
 
   delay(50); // small stability delay

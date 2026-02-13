@@ -1,17 +1,13 @@
 package parking
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"image/png"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/boombuler/barcode"
-	"github.com/boombuler/barcode/qr"
 	"github.com/gorilla/mux"
 )
 
@@ -20,7 +16,8 @@ type Spot struct {
     Number   int    `json:"number"`
     Occupied bool   `json:"occupied"`
     LastOpen string `json:"lastOpen,omitempty"`
-    QRCode   string `json:"qrCode,omitempty"`
+    OTP      string `json:"otp,omitempty"`
+    OTPExpiry time.Time `json:"otpExpiry,omitempty"`
 }
 
 type Park struct {
@@ -32,11 +29,30 @@ type Park struct {
 type ParkingStore struct {
     mu sync.Mutex
     parks map[string]*Park
+    btBridge BluetoothBridgeInterface
+}
+
+type BluetoothBridgeInterface interface {
+    DisplayOTP(otp string) error
 }
 
 var store *ParkingStore
 
+// SetBluetoothBridge sets the Bluetooth bridge for OTP display
+func SetBluetoothBridge(bridge BluetoothBridgeInterface) {
+    store.mu.Lock()
+    defer store.mu.Unlock()
+    store.btBridge = bridge
+}
+
+// generateOTP creates a random 4-digit OTP
+func generateOTP() string {
+    return fmt.Sprintf("%04d", rand.Intn(10000))
+}
+
 func init() {
+    rand.Seed(time.Now().UnixNano())
+    
     store = &ParkingStore{
         parks: make(map[string]*Park),
     }
@@ -66,6 +82,7 @@ func RegisterRoutes(r *mux.Router) {
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/release", releaseSpotHandler).Methods("POST")
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/update", updateSpotHandler).Methods("POST")
     r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/opengate", openGateHandler).Methods("POST")
+    r.HandleFunc("/api/parks/{parkID}/spots/{spotID}/validate-otp", validateOTPHandler).Methods("POST")
 }
 
 func listParksHandler(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +100,8 @@ type reserveResp struct {
     ParkID string `json:"parkId"`
     SpotID string `json:"spotId"`
     SpotNumber int `json:"spotNumber"`
-    QRBase64 string `json:"qrBase64"`
+    OTP string `json:"otp"`
+    OTPExpiry string `json:"otpExpiry"`
 }
 
 func reserveSpotHandler(w http.ResponseWriter, r *http.Request) {
@@ -113,41 +131,23 @@ func reserveSpotHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // generate QR payload
-    payload := map[string]any{
-        "parkId": parkID,
-        "spotId": chosen.ID,
-        "spotNumber": chosen.Number,
-        "reservedAt": time.Now().UTC().Format(time.RFC3339),
-    }
-    payloadBytes, _ := json.Marshal(payload)
+    // Generate OTP valid for 15 minutes
+    otp := generateOTP()
+    expiry := time.Now().Add(15 * time.Minute)
+    chosen.OTP = otp
+    chosen.OTPExpiry = expiry
 
-    // make QR PNG using boombuler/barcode
-    code, err := qr.Encode(string(payloadBytes), qr.M, qr.Auto)
-    if err != nil {
-        http.Error(w, "failed to generate qr", http.StatusInternalServerError)
-        return
+    // Display OTP on ESP32 LCD via Bluetooth
+    if store.btBridge != nil {
+        store.btBridge.DisplayOTP(fmt.Sprintf("%d:%s", chosen.Number, otp))
     }
-    code, err = barcode.Scale(code, 256, 256)
-    if err != nil {
-        http.Error(w, "failed to scale qr", http.StatusInternalServerError)
-        return
-    }
-    var buf bytes.Buffer
-    if err := png.Encode(&buf, code); err != nil {
-        http.Error(w, "failed to encode qr", http.StatusInternalServerError)
-        return
-    }
-    b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
-    
-    // Store QR code in the spot
-    chosen.QRCode = b64
 
     resp := reserveResp{
         ParkID: parkID,
         SpotID: chosen.ID,
         SpotNumber: chosen.Number,
-        QRBase64: b64,
+        OTP: otp,
+        OTPExpiry: expiry.Format(time.RFC3339),
     }
 
     w.Header().Set("Content-Type", "application/json")
@@ -185,41 +185,23 @@ func reserveSpecificSpotHandler(w http.ResponseWriter, r *http.Request) {
 
     chosen.Occupied = true
 
-    // generate QR payload
-    payload := map[string]any{
-        "parkId": parkID,
-        "spotId": chosen.ID,
-        "spotNumber": chosen.Number,
-        "reservedAt": time.Now().UTC().Format(time.RFC3339),
-    }
-    payloadBytes, _ := json.Marshal(payload)
+    // Generate OTP valid for 15 minutes
+    otp := generateOTP()
+    expiry := time.Now().Add(15 * time.Minute)
+    chosen.OTP = otp
+    chosen.OTPExpiry = expiry
 
-    // make QR PNG using boombuler/barcode
-    code, err := qr.Encode(string(payloadBytes), qr.M, qr.Auto)
-    if err != nil {
-        http.Error(w, "failed to generate qr", http.StatusInternalServerError)
-        return
+    // Display OTP on ESP32 LCD via Bluetooth
+    if store.btBridge != nil {
+        store.btBridge.DisplayOTP(fmt.Sprintf("%d:%s", chosen.Number, otp))
     }
-    code, err = barcode.Scale(code, 256, 256)
-    if err != nil {
-        http.Error(w, "failed to scale qr", http.StatusInternalServerError)
-        return
-    }
-    var buf bytes.Buffer
-    if err := png.Encode(&buf, code); err != nil {
-        http.Error(w, "failed to encode qr", http.StatusInternalServerError)
-        return
-    }
-    b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
-    
-    // Store QR code in the spot
-    chosen.QRCode = b64
 
     resp := reserveResp{
         ParkID: parkID,
         SpotID: chosen.ID,
         SpotNumber: chosen.Number,
-        QRBase64: b64,
+        OTP: otp,
+        OTPExpiry: expiry.Format(time.RFC3339),
     }
 
     w.Header().Set("Content-Type", "application/json")
@@ -242,7 +224,8 @@ func releaseSpotHandler(w http.ResponseWriter, r *http.Request) {
     for i := range p.Spots {
         if p.Spots[i].ID == spotID {
             p.Spots[i].Occupied = false
-            p.Spots[i].QRCode = ""
+            p.Spots[i].OTP = ""
+            p.Spots[i].OTPExpiry = time.Time{}
             w.Header().Set("Content-Type", "application/json")
             json.NewEncoder(w).Encode(map[string]any{"ok": true})
             return
@@ -280,7 +263,8 @@ func updateSpotHandler(w http.ResponseWriter, r *http.Request) {
         if p.Spots[i].ID == spotID {
             p.Spots[i].Occupied = pld.Occupied
             if !pld.Occupied {
-                p.Spots[i].QRCode = ""
+                p.Spots[i].OTP = ""
+                p.Spots[i].OTPExpiry = time.Time{}
             }
             w.Header().Set("Content-Type", "application/json")
             json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -310,6 +294,76 @@ func openGateHandler(w http.ResponseWriter, r *http.Request) {
             p.Spots[i].LastOpen = time.Now().UTC().Format(time.RFC3339)
             w.Header().Set("Content-Type", "application/json")
             json.NewEncoder(w).Encode(map[string]any{"ok": true})
+            return
+        }
+    }
+
+    http.Error(w, "spot not found", http.StatusNotFound)
+}
+
+// validateOTPHandler validates OTP and opens gate if valid
+func validateOTPHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    parkID := vars["parkID"]
+    spotID := vars["spotID"]
+
+    type payload struct {
+        OTP string `json:"otp"`
+    }
+
+    var pld payload
+    if err := json.NewDecoder(r.Body).Decode(&pld); err != nil {
+        http.Error(w, "invalid body", http.StatusBadRequest)
+        return
+    }
+
+    store.mu.Lock()
+    defer store.mu.Unlock()
+    p, ok := store.parks[parkID]
+    if !ok {
+        http.Error(w, "park not found", http.StatusNotFound)
+        return
+    }
+
+    for i := range p.Spots {
+        if p.Spots[i].ID == spotID {
+            spot := &p.Spots[i]
+            
+            // Check if OTP is empty (no reservation)
+            if spot.OTP == "" {
+                http.Error(w, "no active reservation", http.StatusBadRequest)
+                return
+            }
+            
+            // Check if OTP expired
+            if time.Now().After(spot.OTPExpiry) {
+                spot.OTP = ""
+                spot.OTPExpiry = time.Time{}
+                http.Error(w, "OTP expired", http.StatusUnauthorized)
+                return
+            }
+            
+            // Validate OTP
+            if spot.OTP != pld.OTP {
+                http.Error(w, "invalid OTP", http.StatusUnauthorized)
+                return
+            }
+            
+            // OTP is valid - clear it (single use) and trigger gate
+            spot.OTP = ""
+            spot.OTPExpiry = time.Time{}
+            spot.LastOpen = time.Now().UTC().Format(time.RFC3339)
+            
+            // Send command to ESP32 to open gate
+            if store.btBridge != nil {
+                store.btBridge.DisplayOTP(fmt.Sprintf("OPEN:%d", spot.Number))
+            }
+            
+            w.Header().Set("Content-Type", "application/json")
+            json.NewEncoder(w).Encode(map[string]any{
+                "ok": true,
+                "message": "Gate opened successfully",
+            })
             return
         }
     }

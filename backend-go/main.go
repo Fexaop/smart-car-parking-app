@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"time"
 
+	"github.com/Fexaop/mdp-ir-car-parking/bluetooth"
 	"github.com/Fexaop/mdp-ir-car-parking/config"
 	"github.com/Fexaop/mdp-ir-car-parking/middleware"
 	"github.com/Fexaop/mdp-ir-car-parking/parking"
@@ -40,6 +43,30 @@ func main() {
 	}
 	defer db.Close()
 
+	// Initialize Bluetooth bridge using Python subprocess
+	pythonScript := os.Getenv("PYTHON_BRIDGE_SCRIPT")
+	if pythonScript == "" {
+		pythonScript = "../bluetooth_bridge.py" // Default path
+	}
+	
+	handler := bluetooth.NewParkingMessageHandler("http://localhost:" + cfg.ServerPort)
+	btBridge := bluetooth.NewBluetoothBridge(handler)
+	
+	// Attempt to start Python bridge (non-blocking)
+	go func() {
+		log.Printf("Starting Python Bluetooth bridge: %s\n", pythonScript)
+		if err := btBridge.StartPythonBridge(pythonScript); err != nil {
+			log.Printf("Failed to start Bluetooth bridge: %v\n", err)
+			log.Println("Parking system will run without Bluetooth integration")
+		}
+	}()
+	
+	// Give Python bridge time to initialize
+	time.Sleep(2 * time.Second)
+	
+	// Set the Bluetooth bridge in parking package
+	parking.SetBluetoothBridge(btBridge)
+
 	// Initialize dependencies
 	userQueries := query.NewUserQueries(db)
 	authMiddleware := middleware.NewAuthMiddleware(cfg.JWTSecret)
@@ -58,10 +85,10 @@ func main() {
 	r.Handle("/protected", authMiddleware.AuthRequired(http.HandlerFunc(authRoutes.ProtectedHandler))).Methods("GET", "OPTIONS")
 
 	// Apply CORS middleware
-	handler := corsMiddleware(r)
+	httpHandler := corsMiddleware(r)
 
 	// Start server
 	serverAddr := ":" + cfg.ServerPort
 	fmt.Printf("Server running on http://localhost%s\n", serverAddr)
-	log.Fatal(http.ListenAndServe(serverAddr, handler))
+	log.Fatal(http.ListenAndServe(serverAddr, httpHandler))
 }
