@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { signIn } from '@choochmeque/tauri-plugin-google-auth-api';
 
 export interface User {
   email: string;
@@ -7,7 +6,12 @@ export interface User {
   picture?: string;
 }
 
-// Helper to get API base URL from localStorage or environment
+export interface MobileLoginLink {
+  requestId: string;
+  loginUrl: string;
+  expiresIn: number;
+}
+
 const getApiBaseUrl = (): string => {
   const savedIp = localStorage.getItem('serverIp');
   if (savedIp) {
@@ -16,8 +20,16 @@ const getApiBaseUrl = (): string => {
   return import.meta.env.VITE_API_URL || 'http://localhost:8080';
 };
 
+const parseErrorResponse = async (response: Response, fallback: string): Promise<string> => {
+  try {
+    const text = (await response.text()).trim();
+    return text || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 export const authService = {
-  // Check if running on mobile platform
   isMobile: async (): Promise<boolean> => {
     try {
       return await invoke<boolean>('is_mobile');
@@ -27,58 +39,60 @@ export const authService = {
     }
   },
 
-  // Google Auth for Android using the plugin
-  googleAuthMobile: async (): Promise<{ user: User; token: string }> => {
-    try {
-      // Use the plugin's signIn function
-      const result = await signIn({
-        clientId: '97666001398-9trpf011q5tjfubotoador2bfbhknv4l.apps.googleusercontent.com',
-        scopes: ['openid', 'email', 'profile'],
-      });
+  createMobileLoginLink: async (): Promise<MobileLoginLink> => {
+    const response = await fetch(`${getApiBaseUrl()}/auth/mobile/link`, {
+      method: 'GET',
+    });
 
-      // Extract user info from ID token (you may need to decode the JWT)
-      // For now, we'll use the tokens to authenticate with the backend
-      
-      // Exchange the Google ID token for our backend JWT
-      const response = await fetch(`${getApiBaseUrl()}/auth/mobile`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id_token: result.idToken,
-          access_token: result.accessToken,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to exchange token with backend');
-      }
-
-      const data = await response.json();
-      
-      // Decode the ID token to get user info (basic implementation)
-      const idTokenPayload = JSON.parse(atob(result.idToken?.split('.')[1] || '{}'));
-      
-      const user: User = {
-        email: idTokenPayload.email || '',
-        name: idTokenPayload.name || '',
-        picture: idTokenPayload.picture || '',
-      };
-
-      return { user, token: data.token };
-    } catch (error) {
-      console.error('Google auth failed:', error);
-      throw error;
+    if (!response.ok) {
+      const message = await parseErrorResponse(response, 'Failed to generate mobile login link');
+      throw new Error(message);
     }
+
+    const data = await response.json();
+    if (!data.request_id || !data.login_url) {
+      throw new Error('Invalid mobile login link response');
+    }
+
+    return {
+      requestId: data.request_id,
+      loginUrl: data.login_url,
+      expiresIn: Number(data.expires_in || 0),
+    };
   },
 
-  // Get the Google OAuth URL for desktop (Go backend)
+  verifyMobileOtp: async (requestId: string, otp: string): Promise<{ user: User; token: string }> => {
+    const response = await fetch(`${getApiBaseUrl()}/auth/mobile/otp/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        request_id: requestId,
+        otp,
+      }),
+    });
+
+    if (!response.ok) {
+      const message = await parseErrorResponse(response, 'Invalid or expired OTP');
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+    if (!data.token || !data.user) {
+      throw new Error('Invalid OTP verification response');
+    }
+
+    return {
+      token: data.token,
+      user: data.user,
+    };
+  },
+
   getGoogleLoginUrl: () => {
     return `${getApiBaseUrl()}/login`;
   },
 
-  // Handle OAuth callback (Desktop only)
   handleCallback: async (): Promise<void> => {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
@@ -87,7 +101,6 @@ export const authService = {
       throw new Error('No token received from OAuth');
     }
 
-    // Store token and fetch user info
     localStorage.setItem('token', token);
     const user = await authService.getCurrentUser(token);
     localStorage.setItem('user', JSON.stringify(user));
@@ -128,25 +141,25 @@ export const authService = {
 
   testConnection: async (serverIp?: string): Promise<{ success: boolean; message: string }> => {
     const testUrl = serverIp ? `http://${serverIp}` : getApiBaseUrl();
-    
+
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-      
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       await fetch(`${testUrl}/protected`, {
         method: 'OPTIONS',
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       return {
         success: true,
         message: `Successfully connected to ${testUrl}`,
       };
     } catch (error) {
       let message = 'Connection failed: ';
-      
+
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
           message += 'Request timeout. Server not responding.';
@@ -158,7 +171,7 @@ export const authService = {
       } else {
         message += 'Unknown error occurred';
       }
-      
+
       return {
         success: false,
         message: `${message} (URL: ${testUrl})`,

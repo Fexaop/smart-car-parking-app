@@ -10,10 +10,11 @@ import (
 )
 
 type Config struct {
-	DBPath            string
-	JWTSecret         []byte
-	ServerPort        string
-	GoogleOAuthConfig *oauth2.Config
+	DBPath                   string
+	JWTSecret                []byte
+	ServerPort               string
+	GoogleOAuthConfig        *oauth2.Config
+	GoogleMobileOAuthConfig  *oauth2.Config
 }
 
 func LoadConfig() *Config {
@@ -32,6 +33,17 @@ func LoadConfig() *Config {
 		ClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
 		ClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
 		RedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/callback"),
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+
+	config.GoogleMobileOAuthConfig = &oauth2.Config{
+		ClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
+		ClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
+		RedirectURL:  getEnv("GOOGLE_MOBILE_REDIRECT_URL", "http://localhost:8080/auth/mobile/callback"),
 		Scopes: []string{
 			"https://www.googleapis.com/auth/userinfo.email",
 			"https://www.googleapis.com/auth/userinfo.profile",

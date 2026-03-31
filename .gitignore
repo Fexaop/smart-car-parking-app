@@ -26,3 +26,4 @@ dist-ssr
 backend-go/backend
 backend-go/.env
 .env
+*.env
