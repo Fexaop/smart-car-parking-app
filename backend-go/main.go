@@ -63,6 +63,11 @@ func main() {
 	userQueries := query.NewUserQueries(db)
 	authMiddleware := middleware.NewAuthMiddleware(cfg.JWTSecret)
 	authRoutes := routes.NewAuthRoutes(cfg.GoogleOAuthConfig, cfg.GoogleMobileOAuthConfig, userQueries, authMiddleware)
+	if err := parking.SetDB(db); err != nil {
+		log.Fatal("Failed to initialize parking database:", err)
+	}
+	parking.SetUserIDProvider(authMiddleware)
+	parking.StartLiveConsole()
 
 	r := mux.NewRouter()
 

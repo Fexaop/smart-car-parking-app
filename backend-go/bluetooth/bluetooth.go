@@ -18,6 +18,7 @@ type BluetoothBridge struct {
 	mu      sync.Mutex
 	handler MessageHandler
 	running bool
+	connected bool
 }
 
 type MessageHandler interface {
@@ -70,6 +71,7 @@ func (b *BluetoothBridge) StartPythonBridge(pythonScript string) error {
 	}
 	
 	b.running = true
+	b.connected = false
 	log.Println("Python Bluetooth bridge started")
 	
 	// Start reading from stdout (structured messages)
@@ -99,6 +101,11 @@ func (b *BluetoothBridge) readStdout() {
 	if err := scanner.Err(); err != nil {
 		log.Printf("Error reading from Python stdout: %v\n", err)
 	}
+
+	b.mu.Lock()
+	b.connected = false
+	b.running = false
+	b.mu.Unlock()
 	
 	log.Println("Python stdout reader stopped")
 }
@@ -119,6 +126,9 @@ func (b *BluetoothBridge) readStderr() {
 func (b *BluetoothBridge) handlePythonMessage(msg PythonMessage) {
 	switch msg.Type {
 	case "connected":
+		b.mu.Lock()
+		b.connected = true
+		b.mu.Unlock()
 		log.Printf("ESP32 connected: %v\n", msg.Data["address"])
 	
 	case "ready":
@@ -148,9 +158,16 @@ func (b *BluetoothBridge) handlePythonMessage(msg PythonMessage) {
 		log.Printf("Python bridge error: %v\n", msg.Data["message"])
 	
 	case "disconnected":
+		b.mu.Lock()
+		b.connected = false
+		b.mu.Unlock()
 		log.Println("ESP32 disconnected")
 	
 	case "shutdown":
+		b.mu.Lock()
+		b.connected = false
+		b.running = false
+		b.mu.Unlock()
 		log.Println("Python bridge shutdown")
 	
 	case "message":
@@ -178,9 +195,15 @@ func (b *BluetoothBridge) SendCommand(cmd string) error {
 	if !b.running || b.stdin == nil {
 		return fmt.Errorf("bridge not running")
 	}
+
+	if !b.connected {
+		return fmt.Errorf("esp32 is not connected")
+	}
 	
 	_, err := b.stdin.Write([]byte(cmd + "\n"))
 	if err != nil {
+		b.connected = false
+		b.running = false
 		return fmt.Errorf("failed to send command: %w", err)
 	}
 	
@@ -211,6 +234,7 @@ func (b *BluetoothBridge) Close() error {
 	}
 	
 	b.running = false
+	b.connected = false
 	log.Println("Python bridge stopped")
 	
 	return nil
