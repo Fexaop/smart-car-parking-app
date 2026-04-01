@@ -214,8 +214,8 @@ export default function Dashboard() {
         delete next[`${parkId}:${spotId}`];
         return next;
       });
-      setOtpInputs((prev) => ({ ...prev, [`${parkId}:${spotId}`]: res.otp || "" }));
-      pushNotice("success", `Spot #${res.spotNumber} reserved successfully.`);
+      setOtpInputs((prev) => ({ ...prev, [`${parkId}:${spotId}`]: "" }));
+      pushNotice("success", `Spot #${res.spotNumber} reserved. Enter OTP from the LCD to unlock controls.`);
       await loadParks(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to reserve spot";
@@ -332,6 +332,32 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {notices.length > 0 && (
+        <div className="pointer-events-none fixed left-3 right-3 top-4 z-50 flex flex-col gap-2 sm:left-auto sm:right-4 sm:w-105">
+          {notices.map((notice) => (
+            <div
+              key={notice.id}
+              className={`pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg backdrop-blur-md animate-in fade-in-0 slide-in-from-top-2 duration-200 ${
+                notice.type === "success"
+                  ? "border-cyan-400/45 bg-cyan-500/12 text-cyan-100"
+                  : notice.type === "error"
+                    ? "border-rose-500/45 bg-rose-500/12 text-rose-100"
+                    : "border-amber-400/45 bg-amber-500/12 text-amber-100"
+              }`}
+              role="status"
+              aria-live={notice.type === "error" ? "assertive" : "polite"}
+            >
+              {notice.type === "success" ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              )}
+              <span>{notice.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="relative z-10 p-4 sm:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
         <Card className="border-border/50 bg-card/70 backdrop-blur">
@@ -350,10 +376,10 @@ export default function Dashboard() {
                 </Button>
                 <button
                   onClick={() => navigate("/profile")}
-                  className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/70 px-2 py-1.5 transition hover:border-primary/50"
+                  className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/70 px-2 py-1.5 transition hover:border-cyan-400/45"
                 >
                   <span className="hidden text-sm font-medium sm:block">{user?.name}</span>
-                  <Avatar className="h-10 w-10 border border-primary/30">
+                  <Avatar className="h-10 w-10 border border-cyan-400/35">
                     <AvatarImage src={user?.picture} alt={user?.name} />
                     <AvatarFallback className="bg-primary text-primary-foreground">
                       {user?.name ? getInitials(user.name) : <User className="h-5 w-5" />}
@@ -364,42 +390,18 @@ export default function Dashboard() {
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               {lastSyncedAt && <p>Last synced at {lastSyncedAt.toLocaleTimeString()}</p>}
-              <p className={wsConnected ? "text-emerald-500" : "text-amber-500"}>
+              <p className={wsConnected ? "text-cyan-400" : "text-amber-400"}>
                 {wsConnected ? "Live updates connected" : "Live updates reconnecting"}
               </p>
             </div>
           </CardContent>
         </Card>
 
-        {notices.length > 0 && (
-          <div className="space-y-2">
-            {notices.map((notice) => (
-              <div
-                key={notice.id}
-                className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
-                  notice.type === "success"
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                    : notice.type === "error"
-                      ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300"
-                      : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                }`}
-              >
-                {notice.type === "success" ? (
-                  <CheckCircle2 className="mt-0.5 h-4 w-4" />
-                ) : (
-                  <AlertCircle className="mt-0.5 h-4 w-4" />
-                )}
-                <span>{notice.message}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
         {loadError && (
-          <Card className="border-red-500/40 bg-red-500/10">
+          <Card className="border-rose-500/40 bg-rose-500/10">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-red-700 dark:text-red-300">{loadError}</p>
+                <p className="text-sm text-rose-200">{loadError}</p>
                 <Button variant="outline" size="sm" onClick={() => loadParks()}>
                   Retry
                 </Button>
@@ -425,10 +427,10 @@ export default function Dashboard() {
                     const isBusy = Boolean(busySpots[spot.id]);
                     const owned = Boolean(spot.ownedByCurrentUser);
                     const cardTone = !spot.occupied
-                      ? "border-emerald-400/45 bg-emerald-500/15"
+                      ? "border-cyan-400/40 bg-cyan-500/12"
                       : owned
-                        ? "border-amber-400/55 bg-amber-500/18"
-                        : "border-zinc-500/45 bg-zinc-700/30";
+                        ? "border-amber-400/55 bg-amber-500/16"
+                        : "border-zinc-600/55 bg-zinc-900/42";
                     const statusText = !spot.occupied ? "Free" : owned ? "Yours" : "In use";
 
                     return (
@@ -438,7 +440,7 @@ export default function Dashboard() {
                             <p className="text-lg font-semibold">Spot #{spot.number}</p>
                             <p className="text-sm text-muted-foreground">{spot.id}</p>
                           </div>
-                          <span className="rounded-full bg-background/70 px-2 py-0.5 text-xs font-medium">
+                          <span className="rounded-full border border-border/65 bg-background/80 px-2 py-0.5 text-xs font-medium">
                             {statusText}
                           </span>
                         </div>
@@ -493,7 +495,7 @@ export default function Dashboard() {
             {ownedSpots.map(({ key, parkId, parkName, spot }) => {
               const isBusy = Boolean(busySpots[spot.id]);
               const isValidating = Boolean(validatingSpots[spot.id]);
-              const requiresOtp = Boolean(spot.otp && !isOtpExpired(spot.otpExpiry));
+              const requiresOtp = Boolean(spot.otpExpiry && !isOtpExpired(spot.otpExpiry));
               const otpVerified = Boolean(verifiedSpots[key]);
               const canControlGate = !requiresOtp || otpVerified;
 
@@ -503,9 +505,9 @@ export default function Dashboard() {
                     <CardTitle className="flex items-center justify-between">
                       <span>{parkName} · Spot #{spot.number}</span>
                       {canControlGate ? (
-                        <Unlock className="h-5 w-5 text-emerald-500" />
+                        <Unlock className="h-5 w-5 text-cyan-400" />
                       ) : (
-                        <Lock className="h-5 w-5 text-amber-500" />
+                        <Lock className="h-5 w-5 text-amber-400" />
                       )}
                     </CardTitle>
                     <CardDescription className="flex items-center gap-2">
@@ -516,7 +518,7 @@ export default function Dashboard() {
 
                   <CardContent className="space-y-3">
                     {requiresOtp && (
-                      <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                      <div className="space-y-2 rounded-lg border border-amber-400/30 bg-amber-500/10 p-3">
                         <p className="text-sm">Enter the 4-digit OTP shown on the parking LCD.</p>
                         <div className="flex gap-2">
                           <Input
@@ -540,13 +542,13 @@ export default function Dashboard() {
                           </Button>
                         </div>
                         {otpVerified && (
-                          <p className="text-xs text-emerald-600 dark:text-emerald-400">OTP verified for this session.</p>
+                          <p className="text-xs text-cyan-300">OTP verified for this session.</p>
                         )}
                       </div>
                     )}
 
                     {!canControlGate && (
-                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+                      <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200">
                         Verify OTP to unlock gate controls for this active reservation.
                       </div>
                     )}

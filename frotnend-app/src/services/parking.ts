@@ -10,7 +10,6 @@ export interface Spot {
   id: string;
   number: number;
   occupied: boolean;
-  otp?: string;
   otpExpiry?: string;
   lastOpen?: string;
   ownerUserId?: string;
@@ -27,7 +26,6 @@ export interface ReserveResponse {
   parkId: string;
   spotId: string;
   spotNumber: number;
-  otp: string;
   otpExpiry: string;
 }
 

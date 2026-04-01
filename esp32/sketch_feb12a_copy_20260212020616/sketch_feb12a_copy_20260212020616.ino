@@ -328,7 +328,10 @@ void loop() {
       if (d2 < 5) lcd.print("occ "); else lcd.print("emp ");
       if (d3 < 5) lcd.print("occ "); else lcd.print("emp ");
     }
+
   }
+
+  
 
   delay(50); // small stability delay
 }

@@ -8,7 +8,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +32,9 @@ const (
 	mobileAuthStatePrefix = "mobile:"
 	mobileAuthLinkTTL     = 10 * time.Minute
 	mobileAuthOTPTTL      = 5 * time.Minute
+	webCallbackPath       = "/callback"
+	mobileCallbackPath    = "/auth/mobile/callback"
+	frontendPort          = "1420"
 )
 
 type mobileAuthSession struct {
@@ -89,20 +94,32 @@ func NewAuthRoutes(googleConfig *oauth2.Config, googleMobileConfig *oauth2.Confi
 }
 
 func (ar *AuthRoutes) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	url := ar.GoogleConfig.AuthCodeURL("state-token")
+	googleConfig := oauthConfigForRequest(ar.GoogleConfig, r, webCallbackPath)
+	if googleConfig == nil {
+		http.Error(w, "OAuth not configured", http.StatusInternalServerError)
+		return
+	}
+
+	url := googleConfig.AuthCodeURL("state-token")
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func (ar *AuthRoutes) CallbackHandler(w http.ResponseWriter, r *http.Request) {
+	googleConfig := oauthConfigForRequest(ar.GoogleConfig, r, webCallbackPath)
+	if googleConfig == nil {
+		http.Error(w, "OAuth not configured", http.StatusInternalServerError)
+		return
+	}
+
 	code := r.URL.Query().Get("code")
 
-	token, err := ar.GoogleConfig.Exchange(context.Background(), code)
+	token, err := googleConfig.Exchange(context.Background(), code)
 	if err != nil {
 		http.Error(w, "OAuth exchange failed", 500)
 		return
 	}
 
-	user, err := fetchGoogleUserInfo(ar.GoogleConfig, token)
+	user, err := fetchGoogleUserInfo(googleConfig, token)
 	if err != nil {
 		http.Error(w, "User info failed", http.StatusInternalServerError)
 		return
@@ -120,7 +137,7 @@ func (ar *AuthRoutes) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := "http://localhost:1420"
+	frontendURL := frontendBaseURL(r)
 	redirectURL := fmt.Sprintf("%s/?token=%s", frontendURL, jwtToken)
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
@@ -177,12 +194,24 @@ func (ar *AuthRoutes) MobileLoginHandler(w http.ResponseWriter, r *http.Request)
 	ar.mobileAuthMu.Unlock()
 
 	state := mobileAuthStatePrefix + requestID
-	url := ar.GoogleMobileConfig.AuthCodeURL(state)
+	googleConfig := oauthConfigForRequest(ar.GoogleMobileConfig, r, mobileCallbackPath)
+	if googleConfig == nil {
+		http.Error(w, "Mobile OAuth not configured", http.StatusInternalServerError)
+		return
+	}
+
+	url := googleConfig.AuthCodeURL(state)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func (ar *AuthRoutes) MobileCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	if ar.GoogleMobileConfig == nil {
+		http.Error(w, "Mobile OAuth not configured", http.StatusInternalServerError)
+		return
+	}
+
+	googleConfig := oauthConfigForRequest(ar.GoogleMobileConfig, r, mobileCallbackPath)
+	if googleConfig == nil {
 		http.Error(w, "Mobile OAuth not configured", http.StatusInternalServerError)
 		return
 	}
@@ -205,13 +234,13 @@ func (ar *AuthRoutes) MobileCallbackHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	token, err := ar.GoogleMobileConfig.Exchange(context.Background(), code)
+	token, err := googleConfig.Exchange(context.Background(), code)
 	if err != nil {
 		http.Error(w, "OAuth exchange failed", 500)
 		return
 	}
 
-	user, err := fetchGoogleUserInfo(ar.GoogleMobileConfig, token)
+	user, err := fetchGoogleUserInfo(googleConfig, token)
 	if err != nil {
 		http.Error(w, "User info failed", http.StatusInternalServerError)
 		return
@@ -428,16 +457,55 @@ func generateOneTimeCode() (string, error) {
 
 func requestBaseURL(r *http.Request) string {
 	scheme := "http"
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+	if forwardedProto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); r.TLS != nil || strings.EqualFold(forwardedProto, "https") {
 		scheme = "https"
 	}
 
 	host := r.Host
-	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+	if forwardedHost := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0]); forwardedHost != "" {
 		host = forwardedHost
 	}
 
+	if host == "" {
+		return ""
+	}
+
 	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+func oauthConfigForRequest(baseConfig *oauth2.Config, r *http.Request, callbackPath string) *oauth2.Config {
+	if baseConfig == nil {
+		return nil
+	}
+
+	config := *baseConfig
+	if baseURL := requestBaseURL(r); baseURL != "" {
+		config.RedirectURL = baseURL + callbackPath
+	}
+
+	return &config
+}
+
+func frontendBaseURL(r *http.Request) string {
+	const fallback = "http://localhost:" + frontendPort
+
+	baseURL := requestBaseURL(r)
+	if baseURL == "" {
+		return fallback
+	}
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Host == "" {
+		return fallback
+	}
+
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return fallback
+	}
+
+	parsed.Host = net.JoinHostPort(hostname, frontendPort)
+	return parsed.String()
 }
 
 func fetchGoogleUserInfo(oauthConfig *oauth2.Config, token *oauth2.Token) (query.UserInfo, error) {

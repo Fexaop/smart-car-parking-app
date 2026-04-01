@@ -303,7 +303,6 @@ type reserveResp struct {
 	ParkID     string `json:"parkId"`
 	SpotID     string `json:"spotId"`
 	SpotNumber int    `json:"spotNumber"`
-	OTP        string `json:"otp"`
 	OTPExpiry  string `json:"otpExpiry"`
 }
 
@@ -760,7 +759,6 @@ func toReserveResp(parkID string, spot Spot) reserveResp {
 		ParkID:     parkID,
 		SpotID:     spot.ID,
 		SpotNumber: spot.Number,
-		OTP:        spot.OTP,
 		OTPExpiry:  spot.OTPExpiry.Format(time.RFC3339),
 	}
 }
@@ -768,8 +766,8 @@ func toReserveResp(parkID string, spot Spot) reserveResp {
 func spotForUser(spot Spot, userID string) Spot {
 	view := spot
 	view.OwnedByCurrentUser = view.OwnerUserID != "" && view.OwnerUserID == userID
+	view.OTP = ""
 	if !view.OwnedByCurrentUser {
-		view.OTP = ""
 		view.OTPExpiry = time.Time{}
 	}
 	return view

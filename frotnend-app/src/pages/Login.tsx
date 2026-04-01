@@ -157,7 +157,7 @@ export default function Login() {
           {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
       </div>
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md border-border/70 bg-card/90 backdrop-blur">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Welcome to Car Parking</CardTitle>
           <CardDescription className="text-center">
@@ -166,15 +166,15 @@ export default function Login() {
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400 rounded-md">
+            <div className="rounded-md border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
               {error}
             </div>
           )}
           {connectionStatus && (
             <div className={`p-3 text-sm rounded-md ${
               connectionStatus.type === 'success' 
-                ? 'text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400'
-                : 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 dark:text-yellow-400'
+                ? 'border border-cyan-400/40 bg-cyan-500/10 text-cyan-200'
+                : 'border border-amber-400/40 bg-amber-500/10 text-amber-200'
             }`}>
               {connectionStatus.message}
             </div>
@@ -233,7 +233,7 @@ export default function Login() {
                     href={mobileLoginLink}
                     target="_blank"
                     rel="noreferrer"
-                    className="block break-all text-sm text-blue-600 underline"
+                    className="block break-all text-sm text-cyan-300 underline"
                   >
                     {mobileLoginLink}
                   </a>
